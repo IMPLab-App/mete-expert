@@ -191,7 +191,19 @@ def main(args):
 
     # distributed: true if manually selected or if world_size > 1
     args.distributed = args.world_size > 1 or args.multiprocessing_distributed
-    ngpus_per_node = torch.cuda.device_count()  # number of gpus of each node
+    ngpus_per_node = torch.cuda.device_count()
+        
+    if ngpus_per_node == 0:
+        ngpus_per_node = 1
+    
+    print(f"DEBUG: ngpus_per_node={ngpus_per_node}")
+    # number of gpus of each node
+    # number of gpus of each node
+    if ngpus_per_node == 0:
+        ngpus_per_node = 1
+        if not torch.cuda.is_available():
+            args.dist_backend = 'gloo'
+            print("CUDA not available. Using 'gloo' backend for distributed training (if enabled) and CPU execution.")
 
     if args.multiprocessing_distributed:
         # now, args.world_size means num of total processes in all nodes
@@ -217,8 +229,9 @@ def main_worker(gpu, ngpus_per_node, args):
     random.seed(args.seed)
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
-    cudnn.deterministic = True
-    cudnn.benchmark = True
+    if torch.cuda.is_available():
+        cudnn.deterministic = True
+        cudnn.benchmark = True
 
     # SET UP FOR DISTRIBUTED TRAINING
     if args.distributed:

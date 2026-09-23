@@ -3,6 +3,7 @@
 
 import os
 import contextlib
+import csv
 import numpy as np
 from inspect import signature
 from collections import OrderedDict
@@ -57,9 +58,16 @@ class AlgorithmBase:
         self.tb_log = tb_log
         self.print_fn = print if logger is None else logger.info
         self.ngpus_per_node = torch.cuda.device_count()
+            
         self.loss_scaler = GradScaler()
         self.amp_cm = autocast if self.use_amp else contextlib.nullcontext
         self.gpu = args.gpu
+        
+        if self.gpu is not None:
+             self.device = torch.device(f"cuda:{self.gpu}")
+        else:
+             self.device = torch.device("cuda")
+                
         self.rank = args.rank
         self.distributed = args.distributed
         self.world_size = args.world_size
@@ -222,11 +230,11 @@ class AlgorithmBase:
             if var is None:
                 continue
 
-            # send var to cuda
+            # send var to device
             if isinstance(var, dict):
-                var = {k: v.cuda(self.gpu) for k, v in var.items()}
+                var = {k: v.to(self.device) for k, v in var.items()}
             else:
-                var = var.cuda(self.gpu)
+                var = var.to(self.device)
             input_dict[arg] = var
         return input_dict
 
@@ -319,10 +327,10 @@ class AlgorithmBase:
                 y = data['y_lb']
 
                 if isinstance(x, dict):
-                    x = {k: v.cuda(self.gpu) for k, v in x.items()}
+                    x = {k: v.to(self.device) for k, v in x.items()}
                 else:
-                    x = x.cuda(self.gpu)
-                y = y.cuda(self.gpu)
+                    x = x.to(self.device)
+                y = y.to(self.device)
 
                 num_batch = y.shape[0]
                 total_num += num_batch
@@ -347,6 +355,7 @@ class AlgorithmBase:
 
         cf_mat = confusion_matrix(y_true, y_pred, normalize='true')
         self.print_fn('confusion matrix:\n' + np.array_str(cf_mat))
+        self._save_confusion_matrix(cf_mat, eval_dest=eval_dest)
         self.ema.restore()
         self.model.train()
 
@@ -356,6 +365,83 @@ class AlgorithmBase:
         if return_logits:
             eval_dict[eval_dest + '/logits'] = y_logits
         return eval_dict
+
+    def _get_confusion_matrix_labels(self):
+        """
+        get display labels for confusion matrix
+        """
+        dataset = None
+        if hasattr(self, 'dataset_dict') and isinstance(self.dataset_dict, dict):
+            dataset = self.dataset_dict.get('eval', None)
+
+        if dataset is not None:
+            for attr in ['classes', 'class_names']:
+                labels = getattr(dataset, attr, None)
+                if labels is not None and len(labels) == self.num_classes:
+                    return [str(label) for label in labels]
+
+        return [f'class_{idx}' for idx in range(self.num_classes)]
+
+    def _save_confusion_matrix(self, cf_mat, eval_dest='eval'):
+        """
+        save confusion matrix to csv and png
+        """
+        if self.distributed and self.rank != 0:
+            return
+
+        save_root = os.path.join(self.save_dir, self.save_name, 'confusion_matrix')
+        os.makedirs(save_root, exist_ok=True)
+
+        step_tag = f'epoch{getattr(self, "epoch", 0):03d}_iter{getattr(self, "it", 0):06d}'
+        base_name = f'{eval_dest}_{step_tag}'
+        labels = self._get_confusion_matrix_labels()
+
+        csv_path = os.path.join(save_root, f'{base_name}.csv')
+        with open(csv_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([''] + labels)
+            for label, row in zip(labels, cf_mat):
+                writer.writerow([label] + [f'{value:.6f}' for value in row])
+
+        try:
+            import matplotlib.pyplot as plt
+
+            fig_size = max(6, self.num_classes * 0.8)
+            fig, ax = plt.subplots(figsize=(fig_size, fig_size))
+            im = ax.imshow(cf_mat, interpolation='nearest', cmap='Blues', vmin=0.0, vmax=1.0)
+            ax.figure.colorbar(im, ax=ax)
+            ax.set(
+                xticks=np.arange(self.num_classes),
+                yticks=np.arange(self.num_classes),
+                xticklabels=labels,
+                yticklabels=labels,
+                ylabel='True label',
+                xlabel='Predicted label',
+                title=f'Confusion Matrix ({eval_dest})'
+            )
+            plt.setp(ax.get_xticklabels(), rotation=45, ha='right', rotation_mode='anchor')
+
+            thresh = cf_mat.max() / 2.0 if cf_mat.size > 0 else 0.0
+            for i in range(self.num_classes):
+                for j in range(self.num_classes):
+                    ax.text(
+                        j,
+                        i,
+                        f'{cf_mat[i, j]:.2f}',
+                        ha='center',
+                        va='center',
+                        color='white' if cf_mat[i, j] > thresh else 'black',
+                        fontsize=8,
+                    )
+
+            fig.tight_layout()
+            png_path = os.path.join(save_root, f'{base_name}.png')
+            fig.savefig(png_path, dpi=300, bbox_inches='tight')
+            plt.close(fig)
+            self.print_fn(f'confusion matrix saved: {csv_path}')
+            self.print_fn(f'confusion matrix image saved: {png_path}')
+        except Exception as e:
+            self.print_fn(f'[!] failed to save confusion matrix image: {e}')
 
     def get_save_dict(self):
         """
@@ -394,6 +480,8 @@ class AlgorithmBase:
         checkpoint = torch.load(load_path, map_location='cpu')
         self.model.load_state_dict(checkpoint['model'])
         self.ema_model.load_state_dict(checkpoint['ema_model'])
+        if self.ema is not None:
+            self.ema.load(self.ema_model)
         self.loss_scaler.load_state_dict(checkpoint['loss_scaler'])
         self.it = checkpoint['it']
         self.start_epoch = checkpoint['epoch']
@@ -502,7 +590,7 @@ class ImbAlgorithmBase(AlgorithmBase):
         pass
 
     def set_optimizer(self):
-        if self.args.dataset in ['cifar100', 'food101', 'semi_aves', 'semi_aves_out']:
+        if self.args.dataset in ['cifar100','pic''food101', 'semi_aves', 'semi_aves_out']:
             return super().set_optimizer()
         elif self.args.dataset in ['imagenet', 'imagenet127']:
             return super().set_optimizer()

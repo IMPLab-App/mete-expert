@@ -2,10 +2,20 @@
 # Licensed under the MIT License.
 
 import os
+import re
 import torch
 import torch.nn as nn
-import ruamel.yaml as yaml
+try:
+    import ruamel.yaml as yaml
+except ModuleNotFoundError:
+    import yaml
 from torch.utils.tensorboard import SummaryWriter
+
+
+def _coerce_yaml_scalar(value):
+    if isinstance(value, str) and re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)", value):
+        return float(value)
+    return value
 
 
 def over_write_args_from_dict(args, dict):
@@ -13,7 +23,7 @@ def over_write_args_from_dict(args, dict):
     overwrite arguments acocrding to config file
     """
     for k in dict:
-        setattr(args, k, dict[k])
+        setattr(args, k, _coerce_yaml_scalar(dict[k]))
 
 
 def over_write_args_from_file(args, yml):
@@ -23,9 +33,13 @@ def over_write_args_from_file(args, yml):
     if yml == '':
         return
     with open(yml, 'r', encoding='utf-8') as f:
-        dic = yaml.load(f.read(), Loader=yaml.Loader)
+        if hasattr(yaml, "YAML"):
+            yaml_obj = yaml.YAML(typ='safe')
+            dic = yaml_obj.load(f)
+        else:
+            dic = yaml.safe_load(f)
         for k in dic:
-            setattr(args, k, dic[k])
+            setattr(args, k, _coerce_yaml_scalar(dic[k]))
 
 
 def setattr_cls_from_kwargs(cls, kwargs):

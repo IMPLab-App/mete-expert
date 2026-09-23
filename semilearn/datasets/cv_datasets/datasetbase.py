@@ -51,13 +51,13 @@ class BasicDataset(Dataset):
             target = None
         else:
             target_ = self.targets[idx]
-            target = target_ if not self.onehot else get_onehot(self.num_classes, target_)
+            target = int(target_) if not self.onehot else get_onehot(self.num_classes, int(target_))
 
         if self.noised_targets is None:
             noised_target = target
         else:
             noised_target_ = self.noised_targets[idx]
-            noised_target = noised_target_ if not self.onehot else get_onehot(self.num_classes, noised_target_)
+            noised_target = int(noised_target_) if not self.onehot else get_onehot(self.num_classes, int(noised_target_))
 
         # set augmented images
         img = self.data[idx]

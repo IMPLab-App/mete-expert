@@ -97,7 +97,7 @@ class WideResNet(nn.Module):
         self.avgpool5 = nn.AdaptiveAvgPool2d((1, 1))
 
         self.BNH = nn.BatchNorm2d(self.num_features)
-        self.BNM = nn.BatchNorm2d(self.num_features)
+        # self.BNM = nn.BatchNorm2d(self.num_features)
         self.BNT = nn.BatchNorm2d(self.num_features)
 
         # classifier
@@ -133,32 +133,41 @@ class WideResNet(nn.Module):
         fuse_out3 = self.avgpool3(out33).view(-1, self.channels[2])
         fuse_out4 = self.avgpool4(out44).view(-1, self.channels[3])
 
-        head_fs, medium_fs, tail_fs = self.BNH(out5), self.BNM(out5), self.BNT(out5)
-        fs = torch.cat((head_fs, medium_fs, tail_fs), dim=0)
+        # head_fs, medium_fs, tail_fs = self.BNH(out5), self.BNM(out5), self.BNT(out5)
+        head_fs, tail_fs = self.BNH(out5), self.BNT(out5)
+        # fs = torch.cat((head_fs, medium_fs, tail_fs), dim=0)
+        fs = torch.cat((head_fs, tail_fs), dim=0)
         out = self.avgpool5(fs).view(fs.size(0), -1)
 
         if only_feat:
             return out
 
         output = self.classifier(out)
-        logitsH, logitsM, logitsT = output.chunk(3)
-        logits = (logitsH + logitsM + logitsT) / 3
+        # logitsH, logitsM, logitsT = output.chunk(3)
+        logitsH, logitsT = output.chunk(2)
+        # logits = (logitsH + logitsM + logitsT) / 3
+        logits = (logitsH + logitsT) / 2
 
 
         aux_output1 = self.aux_classifier1(out)
-        aux_logitsH1, aux_logitsM1, aux_logitsT1 = aux_output1.chunk(3)
-        aux_logits1 = (aux_logitsH1 + aux_logitsM1 + aux_logitsT1) / 3
+        # aux_logitsH1, aux_logitsM1, aux_logitsT1 = aux_output1.chunk(3)
+        aux_logitsH1, aux_logitsT1 = aux_output1.chunk(2)
+        # aux_logits1 = (aux_logitsH1 + aux_logitsM1 + aux_logitsT1) / 3
+        aux_logits1 = (aux_logitsH1 + aux_logitsT1) / 2
 
         aux_output2 = self.aux_classifier2(out)
-        aux_logitsH2, aux_logitsM2, aux_logitsT2 = aux_output2.chunk(3)
-        aux_logits2 = (aux_logitsH2 + aux_logitsM2 + aux_logitsT2) / 3
+        # aux_logitsH2, aux_logitsM2, aux_logitsT2 = aux_output2.chunk(3)
+        aux_logitsH2, aux_logitsT2 = aux_output2.chunk(2)
+        # aux_logits2 = (aux_logitsH2 + aux_logitsM2 + aux_logitsT2) / 3
+        aux_logits2 = (aux_logitsH2 + aux_logitsT2) / 2
 
         feat_for_fuse = {'feat1': fuse_out1, 'feat2': fuse_out2, 'feat3': fuse_out3, 'feat4': fuse_out4}
 
         result_dict = {'feat': out, 'feat_for_fuse': feat_for_fuse,
-                       'logitsH': logitsH, 'logitsM': logitsM, 'logitsT': logitsT, 'logits': logits,
-                       'aux_logitsH1': aux_logitsH1, 'aux_logitsM1': aux_logitsM1, 'aux_logitsT1': aux_logitsT1, 'aux_logits1': aux_logits1,
-                       'aux_logitsH2': aux_logitsH2, 'aux_logitsM2': aux_logitsM2, 'aux_logitsT2': aux_logitsT2, 'aux_logits2': aux_logits2}
+                       'logitsH': logitsH, 'logitsT': logitsT, 'logits': logits,
+                       'aux_logitsH1': aux_logitsH1, 'aux_logitsT1': aux_logitsT1, 'aux_logits1': aux_logits1,
+                       'aux_logitsH2': aux_logitsH2, 'aux_logitsT2': aux_logitsT2, 'aux_logits2': aux_logits2}
+                        # 'logitsM': logitsM, 'aux_logitsM1': aux_logitsM1, 'aux_logitsM2': aux_logitsM2, removed
 
         return result_dict
 

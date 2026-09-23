@@ -13,6 +13,13 @@ from torch.utils.data import sampler, DataLoader
 base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
 
+def _balanced_samples_per_class(num_labels, num_classes):
+    num_labels = int(num_labels)
+    base = num_labels // num_classes
+    remainder = num_labels % num_classes
+    return [base + (1 if c < remainder else 0) for c in range(num_classes)]
+
+
 def split_labeled_unlabeled_data(args, data, targets, num_classes, lb_num_labels, ulb_num_labels=None,
                                  lb_imbalance_ratio=1.0, ulb_imbalance_ratio=1.0, noise_ratio=0.1,
                                  noise_per_class=False, lb_imb_type='exp', ulb_imb_type='exp', num_steps=5,
@@ -85,8 +92,7 @@ def sample_labeled_unlabeled_data(args, data, target, num_classes, lb_num_labels
         # get samples per class
         if lb_imbalance_ratio == 1.0:
             # balanced setting, lb_num_labels is total number of labels for labeled data
-            assert lb_num_labels % num_classes == 0, "lb_num_labels must be dividable by num_classes in balanced setting"
-            lb_samples_per_class = [int(lb_num_labels / num_classes)] * num_classes
+            lb_samples_per_class = _balanced_samples_per_class(lb_num_labels, num_classes)
         else:
             # imbalanced setting, lb_num_labels is the maximum number of labels for class 1
             lb_samples_per_class = make_imbalance_data(lb_num_labels, num_classes, lb_imbalance_ratio, lb_imb_type, num_steps)
@@ -122,8 +128,7 @@ def sample_labeled_unlabeled_data(args, data, target, num_classes, lb_num_labels
         # get samples per class
         if lb_imbalance_ratio == 1.0:
             # balanced setting, lb_num_labels is total number of labels for labeled data
-            assert lb_num_labels % num_classes == 0, "lb_num_labels must be dividable by num_classes in balanced setting"
-            lb_samples_per_class = [int(lb_num_labels / num_classes)] * num_classes
+            lb_samples_per_class = _balanced_samples_per_class(lb_num_labels, num_classes)
         else:
             # imbalanced setting, lb_num_labels is the maximum number of labels for class 1
             lb_samples_per_class = make_imbalance_data(lb_num_labels, num_classes, lb_imbalance_ratio, lb_imb_type, num_steps)
@@ -134,8 +139,7 @@ def sample_labeled_unlabeled_data(args, data, target, num_classes, lb_num_labels
                 ulb_samples_per_class = [int(len(data) / num_classes) - lb_samples_per_class[c] for c in range(num_classes)]
                 # [int(len(data) / num_classes) - int(lb_num_labels / num_classes)] * num_classes
             else:
-                assert ulb_num_labels % num_classes == 0, "ulb_num_labels must be dividable by num_classes in balanced setting"
-                ulb_samples_per_class = [int(ulb_num_labels / num_classes)] * num_classes
+                ulb_samples_per_class = _balanced_samples_per_class(ulb_num_labels, num_classes)
         else:
             # imbalanced setting
             assert ulb_num_labels is not None, "ulb_num_labels must be set set in imbalanced setting"

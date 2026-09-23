@@ -50,7 +50,7 @@ rank: 0
 multiprocessing_distributed: False
 dist_url: tcp://127.0.0.1:10181
 dist_backend: nccl
-gpu: 1
+gpu: 0
 include_lb_to_ulb: False
 imb_algorithm: metaexpert
 la_tau_lb1: 0.0

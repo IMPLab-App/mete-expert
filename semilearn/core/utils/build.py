@@ -6,6 +6,7 @@ import math
 import torch
 import random
 import logging
+import socket
 import torch.distributed as dist
 from torch.utils.data import DataLoader
 from semilearn.datasets import name2sampler
@@ -71,11 +72,16 @@ def get_dataset(args, dataset):
         include_lb_to_ulb: flag of including labeled data into unlabeled data
     """
     from semilearn.datasets import get_eurosat, get_medmnist, get_semi_aves, get_cifar, get_svhn, get_stl10, \
-        get_imagenet
+        get_imagenet, get_pic
 
-    if dataset in ["cifar10", "cifar100"]:
-        lb_dset, ulb_dset, eval_dset, lb_count_message = get_cifar(args, name=args.dataset, data_dir=args.data_dir)
-        test_dset = None
+    if dataset in ["cifar10", "cifar100","pic"]:
+        if dataset == "pic":
+            lb_dset, ulb_dset, eval_dset, test_dset, lb_count_message = get_pic(
+                args, name=args.dataset, data_dir=args.data_dir, return_test=True
+            )
+        else:
+            lb_dset, ulb_dset, eval_dset, lb_count_message = get_cifar(args, name=args.dataset, data_dir=args.data_dir)
+            test_dset = None
     elif dataset == 'stl10':
         lb_dset, ulb_dset, eval_dset, lb_count_message = get_stl10(args, name=args.dataset, data_dir=args.data_dir)
         test_dset = None
@@ -240,11 +246,14 @@ def get_port():
     """
     find a free port to used for distributed learning
     """
-    pscmd = "netstat -ntl |grep -v Active| grep -v Proto|awk '{print $4}'|awk -F: '{print $NF}'"
-    procs = os.popen(pscmd).read()
-    procarr = procs.split("\n")
-    tt = random.randint(15000, 30000)
-    if tt not in procarr:
-        return tt
-    else:
-        return get_port()
+    for _ in range(100):
+        port = random.randint(15000, 30000)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            try:
+                sock.bind(("127.0.0.1", port))
+                return port
+            except OSError:
+                continue
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]

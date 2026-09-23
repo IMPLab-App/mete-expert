@@ -26,6 +26,8 @@ def ce_loss(logits, targets, reduction='none'):
             return nll_loss.mean()
     else:
         log_pred = F.log_softmax(logits, dim=-1)
+        if targets.dtype != torch.long:
+            targets = targets.long()
         return F.nll_loss(log_pred, targets, reduction=reduction)
 
 
