@@ -1,21 +1,9 @@
 __pycache__/
 *.py[cod]
 
-data/
-logs/
-*.log
-
 saved_models/
 saved_models*/
 *saved_models_head_tail*/
-
-runs/
-tensorboard/
-*.tfevents.*
-
-*.pth
-*.pt
-*.ckpt
 
 .ipynb_checkpoints/
 .pytest_cache/
